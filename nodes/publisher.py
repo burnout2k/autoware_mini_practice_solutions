@@ -3,7 +3,7 @@ import rospy
 from std_msgs.msg import String
 
 rospy.init_node('publisher')
-rate = rospy.Rate(rospy.get_param('~rate', '5'))
+rate = rospy.Rate(rospy.get_param('~rate', 5))
 pub = rospy.Publisher('/message', String, queue_size=10)
 message = rospy.get_param('~message', 'Hello World!')
 
