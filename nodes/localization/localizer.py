@@ -102,7 +102,7 @@ class Localizer:
         self.br.sendTransform(t)
 
         # Print transformed coordinates (as per previous requirement)
-        print(x, y)
+        #print(x, y)
 
     def run(self):
         rospy.spin()
