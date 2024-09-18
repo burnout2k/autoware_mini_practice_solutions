@@ -25,13 +25,13 @@ class Localizer:
         # Transform origin point
         self.origin_x, self.origin_y = self.transformer.transform(utm_origin_lat, utm_origin_lon)
 
-        # Subscribers
-        rospy.Subscriber('/novatel/oem7/inspva', INSPVA, self.transform_coordinates)
-
         # Publishers
         self.current_pose_pub = rospy.Publisher('current_pose', PoseStamped, queue_size=10)
         self.current_velocity_pub = rospy.Publisher('current_velocity', TwistStamped, queue_size=10)
         self.br = TransformBroadcaster()
+        
+        # Subscribers
+        rospy.Subscriber('/novatel/oem7/inspva', INSPVA, self.transform_coordinates)
 
     def convert_azimuth_to_yaw(self, azimuth):
         """
