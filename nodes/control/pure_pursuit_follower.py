@@ -26,6 +26,14 @@ class PurePursuitFollower:
         rospy.Subscriber('/localization/current_pose', PoseStamped, self.current_pose_callback, queue_size=1)
 
     def path_callback(self, msg):
+        if len(msg.waypoints) < 2:
+            # If the path has less than 2 waypoints, stop the vehicle
+            rospy.logwarn("Received an empty or too-short path. Stopping the vehicle.")
+            self.path_linestring = None
+            self.distance_to_velocity_interpolator = None
+            self.publish_vehicle_cmd(0.0, 0.0)  # Stop the vehicle
+            return
+
         # Convert waypoints to shapely linestring
         self.path_linestring = LineString([(w.pose.pose.position.x, w.pose.pose.position.y) for w in msg.waypoints])
         prepare(self.path_linestring)
@@ -41,8 +49,7 @@ class PurePursuitFollower:
         velocities = np.array([w.twist.twist.linear.x for w in msg.waypoints])
         
         # Create the interpolator
-        self.distance_to_velocity_interpolator = interp1d(distances, velocities, kind='linear', 
-                                                          bounds_error=False, fill_value=0.0)
+        self.distance_to_velocity_interpolator = interp1d(distances, velocities, kind='linear', bounds_error=False, fill_value=0.0)
         
         rospy.loginfo("Path received and velocity interpolator created")
 
@@ -50,6 +57,8 @@ class PurePursuitFollower:
         self.current_pose = msg
         
         if self.path_linestring is None or self.distance_to_velocity_interpolator is None:
+            rospy.logwarn("No valid path available, stopping the vehicle.")
+            self.publish_vehicle_cmd(0.0, 0.0)  # Stop the vehicle
             return
 
         current_pose_point = Point(msg.pose.position.x, msg.pose.position.y)
@@ -60,10 +69,7 @@ class PurePursuitFollower:
         
         # Interpolate velocity
         velocity = self.distance_to_velocity_interpolator(d_ego_from_path_start)
-        
-        #Enable for output info
-        #rospy.loginfo(f"Distance: {d_ego_from_path_start:.2f} m, Steering: {np.degrees(steering_angle):.2f} deg, Velocity: {velocity:.2f} m/s")
-        
+
         self.publish_vehicle_cmd(steering_angle, velocity)
 
     def calculate_steering_angle(self, current_pose_point, d_ego_from_path_start):
@@ -113,3 +119,4 @@ if __name__ == '__main__':
     rospy.init_node('pure_pursuit_follower')
     node = PurePursuitFollower()
     node.run()
+
