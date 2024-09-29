@@ -17,6 +17,8 @@ class PurePursuitFollower:
         self.lookahead_distance = rospy.get_param('~lookahead_distance', 4.0)
         self.wheel_base = rospy.get_param('/vehicle/wheel_base', 2.7)
         self.distance_to_velocity_interpolator = None
+        self.no_path_warning_printed = False
+        self.empty_path_warning_printed = False
 
         # Publishers
         self.vehicle_cmd_pub = rospy.Publisher('/control/vehicle_cmd', VehicleCmd, queue_size=1)
@@ -27,8 +29,9 @@ class PurePursuitFollower:
 
     def path_callback(self, msg):
         if len(msg.waypoints) < 2:
-            # If the path has less than 2 waypoints, stop the vehicle
-            rospy.logwarn("Received an empty or too-short path. Stopping the vehicle.")
+            if not self.empty_path_warning_printed:
+                rospy.logwarn("Received an empty or too-short path. Stopping the vehicle.")
+                self.empty_path_warning_printed = True
             self.path_linestring = None
             self.distance_to_velocity_interpolator = None
             self.publish_vehicle_cmd(0.0, 0.0)  # Stop the vehicle
@@ -52,13 +55,16 @@ class PurePursuitFollower:
         self.distance_to_velocity_interpolator = interp1d(distances, velocities, kind='linear', bounds_error=False, fill_value=0.0)
         
         rospy.loginfo("Path received and velocity interpolator created")
+        self.no_path_warning_printed = False  # Reset the warning flag when a new path is received
 
     def current_pose_callback(self, msg):
         self.current_pose = msg
         
         if self.path_linestring is None or self.distance_to_velocity_interpolator is None:
-            rospy.logwarn("No valid path available, stopping the vehicle.")
-            self.publish_vehicle_cmd(0.0, 0.0)  # Stop the vehicle
+            if not self.no_path_warning_printed:
+                rospy.logwarn("No valid path available, stopping the vehicle.")
+                self.no_path_warning_printed = True
+            self.publish_vehicle_cmd(0.0, 0.0)
             return
 
         current_pose_point = Point(msg.pose.position.x, msg.pose.position.y)
