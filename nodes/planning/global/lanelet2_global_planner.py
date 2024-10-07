@@ -20,9 +20,34 @@ class Lanelet2GlobalPlanner:
         rospy.init_node('lanelet2_global_planner', anonymous=True)
         
         rospy.loginfo("Initializing Lanelet2GlobalPlanner...")
-        self.load_parameters()
-        self.load_lanelet2_map()
-        self.setup_traffic_rules_and_graph()
+        
+        # Load parameters directly in __init__
+        self.map_frame = rospy.get_param('~output_frame', 'map')
+        self.lanelet2_map_name = rospy.get_param('~lanelet2_map_name', '')
+        self.origin_lat = rospy.get_param('/localization/utm_origin_lat', 0.0)
+        self.origin_lon = rospy.get_param('/localization/utm_origin_lon', 0.0)
+        self.speed_limit = rospy.get_param('~speed_limit', 40.0) / 3.6  # Convert km/h to m/s
+        self.distance_to_goal_limit = rospy.get_param('~distance_to_goal_limit', 5.0)
+        
+        rospy.loginfo("Parameters loaded: map_frame=%s, lanelet2_map_name=%s, origin_lat=%f, origin_lon=%f, speed_limit=%f, distance_to_goal_limit=%f",
+                      self.map_frame, self.lanelet2_map_name, self.origin_lat, self.origin_lon, self.speed_limit, self.distance_to_goal_limit)
+        
+        if not self.lanelet2_map_name:
+            rospy.logerr("%s - lanelet2_map_name parameter is not set!", rospy.get_name())
+            rospy.signal_shutdown("Required parameter 'lanelet2_map_name' not set")
+        
+        # Load Lanelet2 map
+        rospy.loginfo("Loading Lanelet2 map...")
+        projector = UtmProjector(Origin(self.origin_lat, self.origin_lon))
+        self.lanelet2_map = load(self.lanelet2_map_name, projector)
+        rospy.loginfo("%s - Lanelet2 map loaded successfully", rospy.get_name())
+        
+        # Set up traffic rules and routing graph
+        rospy.loginfo("Setting up traffic rules and routing graph...")
+        traffic_rules = lanelet2.traffic_rules.create(lanelet2.traffic_rules.Locations.Germany,
+                                                      lanelet2.traffic_rules.Participants.VehicleTaxi)
+        self.graph = lanelet2.routing.RoutingGraph(self.lanelet2_map, traffic_rules)
+        rospy.loginfo("Traffic rules and routing graph set up successfully.")
         
         # Initialize state variables
         self.current_pose = None
@@ -38,38 +63,6 @@ class Lanelet2GlobalPlanner:
         rospy.loginfo("Lanelet2GlobalPlanner initialized successfully.")
         rospy.spin()
 
-    def load_parameters(self):
-        # Load parameters from ROS parameter server
-        rospy.loginfo("Loading parameters...")
-        self.map_frame = rospy.get_param('~output_frame', 'map')
-        self.lanelet2_map_name = rospy.get_param('~lanelet2_map_name', '')
-        self.origin_lat = rospy.get_param('/localization/utm_origin_lat', 0.0)
-        self.origin_lon = rospy.get_param('/localization/utm_origin_lon', 0.0)
-        self.speed_limit = rospy.get_param('~speed_limit', 40.0) / 3.6  # Convert km/h to m/s
-        self.distance_to_goal_limit = rospy.get_param('~distance_to_goal_limit', 5.0)
-        
-        rospy.loginfo("Parameters loaded: map_frame=%s, lanelet2_map_name=%s, origin_lat=%f, origin_lon=%f, speed_limit=%f, distance_to_goal_limit=%f",
-                      self.map_frame, self.lanelet2_map_name, self.origin_lat, self.origin_lon, self.speed_limit, self.distance_to_goal_limit)
-        
-        if not self.lanelet2_map_name:
-            rospy.logerr("%s - lanelet2_map_name parameter is not set!", rospy.get_name())
-            rospy.signal_shutdown("Required parameter 'lanelet2_map_name' not set")
-
-    def load_lanelet2_map(self):
-        # Load the Lanelet2 map
-        rospy.loginfo("Loading Lanelet2 map...")
-        projector = UtmProjector(Origin(self.origin_lat, self.origin_lon))
-        self.lanelet2_map = load(self.lanelet2_map_name, projector)
-        rospy.loginfo("%s - Lanelet2 map loaded successfully", rospy.get_name())
-
-    def setup_traffic_rules_and_graph(self):
-        # Set up traffic rules and routing graph for path planning
-        rospy.loginfo("Setting up traffic rules and routing graph...")
-        traffic_rules = lanelet2.traffic_rules.create(lanelet2.traffic_rules.Locations.Germany,
-                                                      lanelet2.traffic_rules.Participants.VehicleTaxi)
-        self.graph = lanelet2.routing.RoutingGraph(self.lanelet2_map, traffic_rules)
-        rospy.loginfo("Traffic rules and routing graph set up successfully.")
-
     def current_pose_callback(self, msg):
         # Update current pose and check if goal is reached
         self.current_pose = msg
@@ -81,7 +74,7 @@ class Lanelet2GlobalPlanner:
             if distance_to_goal <= self.distance_to_goal_limit:
                 rospy.loginfo(f"{GREEN}%s - Goal reached!{ENDC}", rospy.get_name())
                 self.goal_reached = True
-                self.publish_empty_path()
+                self.publish_waypoints([])  # Publish empty path
 
     def goal_callback(self, msg):
         # Process new goal, plan route, and publish waypoints
@@ -176,23 +169,17 @@ class Lanelet2GlobalPlanner:
         return adjusted_waypoints, adjusted_goal
 
     def publish_waypoints(self, waypoints):
-        # Publish the waypoints as a Lane message
+        # Publish the waypoints as a Lane message (handles both normal and empty paths)
         lane = Lane()
         lane.header.frame_id = self.map_frame
         lane.header.stamp = rospy.Time.now()
         lane.waypoints = waypoints
         self.waypoints_pub.publish(lane)
-        rospy.loginfo("%s - Published %d waypoints to global_path", rospy.get_name(), len(waypoints))
-
-    def publish_empty_path(self):
-        # Publish an empty path when goal is reached
-        empty_lane = Lane()
-        empty_lane.header.frame_id = self.map_frame
-        empty_lane.header.stamp = rospy.Time.now()
-        empty_lane.waypoints = []
-        self.waypoints_pub.publish(empty_lane)
-        rospy.loginfo("%s - Published empty path to global_path", rospy.get_name())
-        self.path_published = False
+        if waypoints:
+            rospy.loginfo("%s - Published %d waypoints to global_path", rospy.get_name(), len(waypoints))
+        else:
+            rospy.loginfo("%s - Published empty path to global_path", rospy.get_name())
+            self.path_published = False
 
     def distance(self, point1, point2):
         # Calculate Euclidean distance between two points
