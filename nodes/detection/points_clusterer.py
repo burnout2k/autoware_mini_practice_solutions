@@ -9,7 +9,6 @@ from sklearn.cluster import DBSCAN
 
 class PointsClusterer:
     def __init__(self):
-        rospy.init_node('points_clusterer', anonymous=True)
         
         # Get clustering parameters from the parameter server
         self.cluster_epsilon = rospy.get_param('~cluster_epsilon')
